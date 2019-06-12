@@ -28,33 +28,102 @@ output: rticles::ieee_article
 ---
 
 ```{r include=F}
+library(DMwR)
+library(chemometrics)
+
 baseball.dataset <- read.csv("../baseball.csv", na.strings = c('?'),
     colClasses = c("character", rep("integer", 11), rep("double", 4), rep("factor", 2)))
 ```
 
 #Introduction
 
-Some bullshit to make an introduction into the dataset: \lipsum[1]
+This paper aims to study the *Hall of Fame* dataset. It comprises a list of different american baseball players, including a collection of statistics about each one of them, corresponding to their whole careers. The Hall of Fame refers to an official recognition that a few organizations may (or may not) give to certain players with outstanding careers. The *Veterans Committee* (VC for short) and the *BaseBall Writers Association of America* (BBWAA) are two of these organizations. The statistics included in the dataset are the following:
+
+- **`Player`**: Character. Variable representing the name of the player. It will not be used during the analysis, but only to label the individuals.
+- **`Number_seasons`**: Count data representing how namy seasons the player has played in the league.
+- **`Games_played`**: Count data representing how many games the player has played.
+- **`At_bats`**: Count data representing the number of times a player has been in the hitter position.
+- **`Runs`**: Count data representing the number of runs a player has achieved.
+- **`Hits`**: Count data representing the number of hits a player has achieved.
+- **`Doubles`**: Count data representing the number of doubles a player has achieved. This happens when the player runs through two bases after one hit.
+- **`Triples`**: Count data representing the number of triples a player has achieved. This happens when the player runs through three bases after one hit.
+- **`Home_runs`**: Count data representing the number of home runs a player has achieved.
+- **`RBIs`**: Count data representing the number of runs-batted-in a player has achieved. That is the number of runs that were completed after one of the player's hit.
+- **`Walks`**: Count data representing the number of walks a player has made. This happens when the pitcher throws the ball poorly four times and the batter is allowed to just walk to the first base.
+- **`Strikeouts`**: Count data representing the number of times the player has been eliminated due to three strikes.
+- **`Batting_average`**: Countinuous numerical data representing the average number of hits a player made when in the hitter position. 
+- **`On_base_pct`**: Continuous data representing how frequently a batter reaches the base taking into account the times he has been in the batter position.
+- **`Slugging_pct`**: Continuous data representing a measure of the batting productivity of a player. It is calculated with the formula below, where `1B` to `4B` refer to all possible outcomes of a hit (from single to home run) and `AB` refers to `At-Bats`. $$SLG = \frac{(1B) + (2 \times 2B) + (3 \times 3B) + (4 \times 4B)}{AB}$$
+- **`Fielding_ave`**: Continuous data representing the average times a defensive player properly handles a batted or thrown ball.
+- **`Position`**: Factor. Variable that represents the position of the player in the field. The possible values are catcher, designated hitter, first base, outfield (That encloses the positions of Right field, Left Field and Center Field), second base, short stop and third base. These are all defensive positions, except for the designated hitter.
+- **`Hall_of_Fame`**: Categorical variable. This is the target variable. Originally, it has three categories that represent players not included in the hall of fame with 0, players included in the hall of fame by the Baseball Writers' Association of America (BBWAA) with 1, and players included in the hall of fame by the Veterans Committee (VC) with 2.
 
 # Data preprocessing
 
-In the case of class target `Hall_Of_Fame`, which is a factor, both values 1 and 2 count as being in the hall of fame. The different values make a reference to the evaluation committee that accepted the players into the hall. Thus, this variable will be modified so that it only contains two values, `no` when the player has not been included in the hall of fame and `yes` otherwise.
+Values `1` and `2` of the class target `Hall_Of_Fame`, which is a factor, count as being in the Hall of Fame. The different values make a reference to the evaluation committee that accepted the players into the Hall. Depending on what procedure or analysis is run over the dataset, it might be useful to keep the different committees well labelled and differentiated. On the other hand, for other procedures having `yes` and `no` categories could be more appropriate.
 
 ```{r include=FALSE, cache=F}
+baseball.dataset.binary <- data.frame(baseball.dataset)
 levels(baseball.dataset$Hall_of_Fame) <- c("no", "BBWAA", "VC")
+levels(baseball.dataset.binary$Hall_of_Fame) <- c("no", "yes", "yes")
 ```
 
-The name `ELMER_SMITH` is duplicated. A quick search in Wikipedia tells us that there are two former players by the name of Elmer Smith. The data matches: One had played 10 seasons and the other 14, so it is not mistaken data, and removing it could cause data loss. According to Wikipedia, the one that played 14 seasons is however more generally known as Mike Smith. So its name will be replaced to `MIKE_SMITH`, which does not match any other player in the set.
+As for the individuals, the name `ELMER_SMITH` is duplicated. A quick search in Wikipedia tells that there are two former players by the name of Elmer Smith. The data matches: One had played 10 seasons and the other 14, so it is not mislabelled data, and removing it would mean data loss. According to Wikipedia, the one that played 14 seasons is however more generally known as Mike Smith. So its name was replaced to `MIKE_SMITH`, which does not match any other player in the set. Also, the players' names are originally considered as one variable. They are going to be used as the row names and the variable is going to be removed.
 
 ```{r include=FALSE, cache=F}
 baseball.dataset[baseball.dataset$Player == "ELMER_SMITH" & baseball.dataset$Number_seasons == 14, "Player"] <- "MIKE_SMITH"
-```
 
-The names are originally considered as a variable. They are going to be used as the row names and the variable is going to be removed.
-
-```{r include=FALSE, cache=F}
 rownames(baseball.dataset) <- baseball.dataset$Player
 baseball.dataset$Player <- NULL
+```
+
+## Missing data and imputation
+
+Missing data in the dataset is represented as question marks (`?`). This happens to `r length(which(is.na(baseball.dataset$Strikeouts)))` observations in the variable `Strikeouts` variable. Only `r length(which(is.na(baseball.dataset$Strikeouts) & baseball.dataset$Hall_of_Fame != "no"))` out of the `r length(which(is.na(baseball.dataset$Strikeouts)))` is a Hall of Fame player. Actually, the hetereogeneity of the dataset, regarding the proportion of Hall of Fame and non Hall of Fame players, is pretty similar in the whole population and in the sample with missing values (`r round(nrow(baseball.dataset[baseball.dataset$Hall_of_Fame != "no",])/nrow(baseball.dataset), 3)` vs. `r nrow(baseball.dataset[baseball.dataset$Hall_of_Fame != "no" & is.na(baseball.dataset$Strikeouts),])/nrow(baseball.dataset[is.na(baseball.dataset$Strikeouts),])`). So, this sample has been considered relevant and has been imputed.
+
+For this task, chained equations, PCA and kNN imputations have been tried. The chained equations method is not deterministic, but in most, if not all, of the attempts the imputed values decreased the mean of the variable significantly. PCA, on the contrary, increased the mean too much. kNN gave the results that most closely followed realistic values.
+
+```{r include=F}
+na.strikeouts <- which(is.na(baseball.dataset$Strikeouts))
+baseball.dataset.knn <- knnImputation(baseball.dataset)
+baseball.dataset.knn$Strikeouts <- round(baseball.dataset.knn$Strikeouts)
+baseball.dataset$Strikeouts[na.strikeouts] <- baseball.dataset.knn$Strikeouts[na.strikeouts]
+baseball.dataset.binary$Strikeouts[na.strikeouts] <- baseball.dataset.knn$Strikeouts[na.strikeouts]
+```
+
+## Outliers
+
+Looking at the summary of the dataset, it seems like some variables have suspicious maximum and minimum values. For example, variable `RBIs` has a minimum value of 21. This value is far away from the mean of the variable and far below its first quartile. It can be seen in the boxplots of figure \ref{fig:rbi-univariate} that the range of the `RBIs` variable changes drastically when including or omitting the hall of fame players. The minimum value of `RBIs` for the hall of fame players is much higher than the overall minimum. This means that the dataset's discordant maximum and minimum values may not really be representative of univariate outliers, becuase of the two really different populations that the dataset mixes. This will also be applied to the rest of continuous variables that show suspicious values, such as `Walks` or `Strikeouts`.
+
+```{r echo=FALSE, fig.height=3, fig.cap="\\label{fig:rbi-univariate}Univariate outlier detection over RBIs variable", cache=F}
+par(mfrow=c(1, 3))
+boxplot(baseball.dataset$RBIs, outcol="firebrick1", main="All players")
+boxplot(baseball.dataset[baseball.dataset$Hall_of_Fame != "no", "RBIs"], outcol="firebrick1", main="Hall of fame")
+boxplot(baseball.dataset[baseball.dataset$Hall_of_Fame == "no", "RBIs"], outcol="firebrick1", main="Not hall of fame")
+par(mfrow=c(1, 1))
+```
+
+But, as for the averaging statistics, a different criteria should be applied. Specifically, the `Fielding_ave` variable has a maximum value of exactly `1`. Only one player, labelled as `r row.names(baseball.dataset)[which.max(baseball.dataset$Fielding_ave)]`, has the given value. This would mean that every time the player defended, the opposing team scored no runs. Still, the player did not make it into the Hall of Fame. Also, the mean of the variable is pretty high (`r mean(baseball.dataset$Fielding_ave)`). Without any more knowledge, this will not be considered an outlier.
+
+As for multivariate outliers, the robustified Mahalanobis distance has been used for their detection. The plots of figure \ref{fig:rmahalanobis-distance} represent the distances of the individuals. The plot on the left shows in red those players that made it into the Hall of Fame, and in blue the ones that did not. It is obvious that the plot considers most of the players in the hall of fame as outliers, and there is a reason for that: They were considered for the hall of fame for their outstanding stats and performances indeed. These players kind of behave like outliers in real life, but that is the point. So, we have decided not to treat them as outliers.
+
+```{r echo=FALSE, fig.cap="\\label{fig:rmahalanobis-distance}Mahalanobis distances with and without Hall of Fame", fig.width=2.35, fig.height=3, cache=F}
+all.outliers <- Moutlier(baseball.dataset[,1:15], plot=F)
+par(mfrow=c(1,1))
+plot(x=1:length(all.outliers$rd), y=all.outliers$rd, pch=19, cex=0.7, axes=F, xlab="", ylab="", col=as.character(lapply(baseball.dataset$Hall_of_Fame, function(x) ifelse(x == "no", "dodgerblue", "firebrick1"))), main="something", col.main="white", cex.main=.1)
+abline(h=all.outliers$cutoff, lty=2, lwd=3)
+axis(2, at=seq(from = 0, to = ceiling(max(all.outliers$rd)), by=(ceiling(max(all.outliers$rd))/5)), cex.axis=.6)
+no.hall.outliers <- Moutlier(baseball.dataset[baseball.dataset$Hall_of_Fame == "no",1:15], plot=F)
+par(mfrow=c(1,1))
+no.hall.outlier.names <- rownames(baseball.dataset[baseball.dataset$Hall_of_Fame == "no",][order(no.hall.outliers$rd, decreasing = T)[1:round(nrow(baseball.dataset) * 0.025)],])
+plot(no.hall.outliers$rd, pch=20, axes=F, col=as.character(lapply(rownames(baseball.dataset[baseball.dataset$Hall_of_Fame == "no",]), function(x) ifelse(x %in% no.hall.outlier.names, "firebrick1", "dodgerblue"))), xlab="", ylab="", main="something", col.main="white", cex.main=.1)
+axis(2, at=seq(from = 0, to = ceiling(max(no.hall.outliers$rd)), by=ceiling(max(no.hall.outliers$rd)/5)), cex.axis=.6)
+```
+
+The plot on the right of the above figure shows only players that are not in the hall of fame. It can be seen that some players still exceed other players. These could actually be considered outliers. If we consider to discard the 2.5% of the individuals, this is, `r nrow(baseball.dataset) * 0.025` with the greatest robustified Mahalanobis distance for being outliers, then those individuals plotted in red will be discarded. The player that most outlies from those excluded from the hall of fame actually has stats that are outstanding, so one can not help but wonder why he was not included. This player is Pete Rose and, as noted by Wikipedia, he has been involved in tax evasion and gambling controversy, which probably affected the commitees' decision making.
+
+```{r include=FALSE, cache=F}
+baseball.dataset <- baseball.dataset[-which(rownames(baseball.dataset) %in% no.hall.outlier.names),]
 ```
 
 # Data exploration
