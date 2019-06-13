@@ -3,6 +3,12 @@ title: How I got into the Hall of Fame
 header-includes:
   - \usepackage{xcolor}
   - \usepackage{lipsum}
+  - \usepackage{tabu}
+  - \usepackage{booktabs}
+  - \usepackage{colortbl}
+  - \usepackage{float}
+  - \setlength{\parskip}{0.25em}
+  - \pagenumbering{arabic}
 affiliation:
   ## use one only of the following
   # author-columnar: true         ## one column per author
@@ -58,9 +64,11 @@ This paper aims to study the *Hall of Fame* dataset. It comprises a list of diff
 - **`Position`**: Factor. Variable that represents the position of the player in the field. The possible values are catcher, designated hitter, first base, outfield (That encloses the positions of Right field, Left Field and Center Field), second base, short stop and third base. These are all defensive positions, except for the designated hitter.
 - **`Hall_of_Fame`**: Categorical variable. This is the target variable. Originally, it has three categories that represent players not included in the hall of fame with 0, players included in the hall of fame by the Baseball Writers' Association of America (BBWAA) with 1, and players included in the hall of fame by the Veterans Committee (VC) with 2.
 
+The dataset has `r nrow(baseball.dataset)` observations, from which, only `r length(which(baseball.dataset$Hall_of_Fame != 0))` are players that made it into the Hall of Fame.
+
 # Data preprocessing
 
-Values `1` and `2` of the class target `Hall_Of_Fame`, which is a factor, count as being in the Hall of Fame. The different values make a reference to the evaluation committee that accepted the players into the Hall. Depending on what procedure or analysis is run over the dataset, it might be useful to keep the different committees well labelled and differentiated. On the other hand, for other procedures having `yes` and `no` categories could be more appropriate.
+Values `1` and `2` of the class target `Hall_Of_Fame`, which is a factor, count as being in the Hall of Fame. The different values make a reference to the evaluation committee that accepted the players into the Hall. Depending on what procedure or analysis is run over the dataset, it might be useful to keep the different committees well labelled and differentiated. On the other hand, there are very few Hall of Fame players, so dividing them into two smaller categories seems unprofitable; the samples would get very small. The two categorizations have been kept for potential usage.
 
 ```{r include=FALSE, cache=F}
 baseball.dataset.binary <- data.frame(baseball.dataset)
@@ -79,7 +87,7 @@ baseball.dataset$Player <- NULL
 
 ## Missing data and imputation
 
-Missing data in the dataset is represented as question marks (`?`). This happens to `r length(which(is.na(baseball.dataset$Strikeouts)))` observations in the variable `Strikeouts` variable. Only `r length(which(is.na(baseball.dataset$Strikeouts) & baseball.dataset$Hall_of_Fame != "no"))` out of the `r length(which(is.na(baseball.dataset$Strikeouts)))` is a Hall of Fame player. Actually, the hetereogeneity of the dataset, regarding the proportion of Hall of Fame and non Hall of Fame players, is pretty similar in the whole population and in the sample with missing values (`r round(nrow(baseball.dataset[baseball.dataset$Hall_of_Fame != "no",])/nrow(baseball.dataset), 3)` vs. `r nrow(baseball.dataset[baseball.dataset$Hall_of_Fame != "no" & is.na(baseball.dataset$Strikeouts),])/nrow(baseball.dataset[is.na(baseball.dataset$Strikeouts),])`). So, this sample has been considered relevant and has been imputed.
+Missing data in the dataset is represented as question marks (`?`). This happens to `r length(which(is.na(baseball.dataset$Strikeouts)))` observations in the `Strikeouts` variable. Only `r length(which(is.na(baseball.dataset$Strikeouts) & baseball.dataset$Hall_of_Fame != "no"))` out of the `r length(which(is.na(baseball.dataset$Strikeouts)))` is a Hall of Fame player. Actually, the hetereogeneity of the dataset, regarding the proportion of Hall of Fame and non Hall of Fame players, is pretty similar in the whole population and in the sample with missing values (`r round(nrow(baseball.dataset[baseball.dataset$Hall_of_Fame != "no",])/nrow(baseball.dataset), 3)` vs. `r nrow(baseball.dataset[baseball.dataset$Hall_of_Fame != "no" & is.na(baseball.dataset$Strikeouts),])/nrow(baseball.dataset[is.na(baseball.dataset$Strikeouts),])`). So, this sample has been considered relevant and has been imputed.
 
 For this task, chained equations, PCA and kNN imputations have been tried. The chained equations method is not deterministic, but in most, if not all, of the attempts the imputed values decreased the mean of the variable significantly. PCA, on the contrary, increased the mean too much. kNN gave the results that most closely followed realistic values.
 
@@ -107,17 +115,23 @@ But, as for the averaging statistics, a different criteria should be applied. Sp
 
 As for multivariate outliers, the robustified Mahalanobis distance has been used for their detection. The plots of figure \ref{fig:rmahalanobis-distance} represent the distances of the individuals. The plot on the left shows in red those players that made it into the Hall of Fame, and in blue the ones that did not. It is obvious that the plot considers most of the players in the hall of fame as outliers, and there is a reason for that: They were considered for the hall of fame for their outstanding stats and performances indeed. These players kind of behave like outliers in real life, but that is the point. So, we have decided not to treat them as outliers.
 
-```{r echo=FALSE, fig.cap="\\label{fig:rmahalanobis-distance}Mahalanobis distances with and without Hall of Fame", fig.width=2.35, fig.height=3, cache=F}
+```{r include=FALSE}
 all.outliers <- Moutlier(baseball.dataset[,1:15], plot=F)
-par(mfrow=c(1,1))
-plot(x=1:length(all.outliers$rd), y=all.outliers$rd, pch=19, cex=0.7, axes=F, xlab="", ylab="", col=as.character(lapply(baseball.dataset$Hall_of_Fame, function(x) ifelse(x == "no", "dodgerblue", "firebrick1"))), main="something", col.main="white", cex.main=.1)
-abline(h=all.outliers$cutoff, lty=2, lwd=3)
-axis(2, at=seq(from = 0, to = ceiling(max(all.outliers$rd)), by=(ceiling(max(all.outliers$rd))/5)), cex.axis=.6)
 no.hall.outliers <- Moutlier(baseball.dataset[baseball.dataset$Hall_of_Fame == "no",1:15], plot=F)
 par(mfrow=c(1,1))
+```
+
+```{r echo=FALSE, fig.cap="\\label{fig:rmahalanobis-distance}Mahalanobis distances with and without Hall of Fame", fig.pos="!t"}
+par(mfrow=c(1,2))
+plot(x=1:length(all.outliers$rd), y=all.outliers$rd, pch=19, cex=0.7, axes=F, xlab="", ylab="", col=as.character(lapply(baseball.dataset$Hall_of_Fame, function(x) ifelse(x == "no", "dodgerblue", "firebrick1"))))
+abline(h=all.outliers$cutoff, lty=2, lwd=3)
+axis(2, at=seq(from = 0, to = ceiling(max(all.outliers$rd)), by=(ceiling(max(all.outliers$rd))/5)), cex.axis=.7)
+axis(1, cex.axis=.6)
 no.hall.outlier.names <- rownames(baseball.dataset[baseball.dataset$Hall_of_Fame == "no",][order(no.hall.outliers$rd, decreasing = T)[1:round(nrow(baseball.dataset) * 0.025)],])
-plot(no.hall.outliers$rd, pch=20, axes=F, col=as.character(lapply(rownames(baseball.dataset[baseball.dataset$Hall_of_Fame == "no",]), function(x) ifelse(x %in% no.hall.outlier.names, "firebrick1", "dodgerblue"))), xlab="", ylab="", main="something", col.main="white", cex.main=.1)
-axis(2, at=seq(from = 0, to = ceiling(max(no.hall.outliers$rd)), by=ceiling(max(no.hall.outliers$rd)/5)), cex.axis=.6)
+plot(no.hall.outliers$rd, pch=20, axes=F, col=as.character(lapply(rownames(baseball.dataset[baseball.dataset$Hall_of_Fame == "no",]), function(x) ifelse(x %in% no.hall.outlier.names, "firebrick1", "dodgerblue"))), xlab="", ylab="", cex=.7)
+axis(2, at=seq(from = 0, to = ceiling(max(no.hall.outliers$rd)), by=ceiling(max(no.hall.outliers$rd)/5)), cex.axis=.7)
+axis(1, cex.axis=.6)
+par(mfrow=c(1,1))
 ```
 
 The plot on the right of the above figure shows only players that are not in the hall of fame. It can be seen that some players still exceed other players. These could actually be considered outliers. If we consider to discard the 2.5% of the individuals, this is, `r nrow(baseball.dataset) * 0.025` with the greatest robustified Mahalanobis distance for being outliers, then those individuals plotted in red will be discarded. The player that most outlies from those excluded from the hall of fame actually has stats that are outstanding, so one can not help but wonder why he was not included. This player is Pete Rose and, as noted by Wikipedia, he has been involved in tax evasion and gambling controversy, which probably affected the commitees' decision making.
