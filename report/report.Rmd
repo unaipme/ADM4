@@ -37,6 +37,9 @@ library(fpc)
 library(caret)
 library(RColorBrewer)
 library(ROCR)
+library(ROSE)
+library(rpart.plot)
+library(kableExtra)
 
 baseball.dataset <- read.csv("../baseball.csv", na.strings = c('?'),
     colClasses = c("character", rep("integer", 11), rep("double", 4), rep("factor", 2)))
@@ -174,7 +177,7 @@ roc.perf <- performance(roc.pred, "tpr", "fpr")
 plot(roc.perf, colorized=T)
 ```
 
-For the selection of the best possible model, the dataset has been split into a training and a test sets, each being two thirds and one third of the whole dataset, and a 10-fold cross validation process has been applied for the training. Due to the big disproportion between the Hall of Fame players and the no Hall of Fame players, it could be reasonable to think that the model could end up working with unbalanced samples and, therefore, underfit or biased. Actually, the random samples for the validation are pretty equally split. On the other hand, it could be easier to end up with unbalanced samples in the cross validation step. To avoid this, the Hall of Fame players have been oversampled. The best found model has an accuracy of `r round(model$results$Accuracy, 3)`, which is not great but is still really good. The ROC curve for the model is shown in figure \ref{fig:roc-table-log-regression}. The Area Under the Curve (AUC) is `r round(performance(roc.pred, measure="auc")@y.values, 3)`.
+For the selection of the best possible model, the dataset has been split into a training and a test sets, each being two thirds and one third of the whole dataset, and a 10-fold cross validation process has been applied for the training. Due to the big disproportion between the Hall of Fame players and the no Hall of Fame players, it could be reasonable to think that the model could end up working with unbalanced samples and, therefore, underfit or biased. Actually, the random samples for the validation are pretty equally split. On the other hand, it could be easier to end up with unbalanced samples in the cross validation step. To avoid this, the Hall of Fame players have been oversampled. The best found model has an accuracy of `r round(model$results$Accuracy, 3)`, which is not great but is still really good. The ROC curve for the model is shown in figure \ref{fig:roc-table-log-regression}. The Area Under the Curve (AUC) is `r round(as.numeric(performance(roc.pred, measure="auc")@y.values), 3)`.
 
 # Clustering
 
@@ -289,9 +292,84 @@ plot(baseball.data.matrix[,1], baseball.data.matrix[,2],col=as.vector(baseball.c
 legend("topleft", legend=c("Cluster 1", "Cluster 2"), pch=21, col=levels(as.factor(baseball.clustered$Cluster)))
 ```
 
+# Classification
+
+## Decision Trees
+
+In order to be able to create a classifier that will be able to predict whether a baseball player with certain records enter the hall of fame or not we are going to build a decission tree. For that purpose we start by creating two subsets of the data that will be used to do holdout validation. As we have a really unbalanced dataset we've been oblied to perform oversampling regarding the players that enter the hall of fame, since the amount of them present in the sample is much lower than those that did not.
+
+```{r include=F, cache=T}
+baseball.dataset.binary <- data.frame(baseball.dataset)
+levels(baseball.dataset.binary$Hall_of_Fame) <- c("no", "yes", "yes")
+
+# Holdout sampling
+N <- nrow(baseball.dataset.binary)
+N.training <- ceiling(2 * N / 3)
+N.test <- N - N.training
+training.sample.indices <- sample(1:N, size = N.training)
+training.sample <- baseball.dataset.binary[training.sample.indices,]
+test.sample <- baseball.dataset.binary[-training.sample.indices,]
+
+training.sample <- ROSE(Hall_of_Fame ~ ., data  = training.sample)$data
+
+# TREE
+baseball.tree <- rpart::rpart(Hall_of_Fame ~ ., data = training.sample, method = "class",
+                              control = rpart.control(cp = 0.000001, xval = 10))
+```
+
+```{r echo=FALSE, fig.cap="\\label{fig:tree}Decission tree for hall of fame.", fig.pos="!t"}
+rpart.plot(baseball.tree)
+```
+
+In first place we start by creating a pure decission tree. The shape of the tree can be seen in figure \ref{fig:tree} and its performance over the test sample are shown below.
+
+```{r echo=FALSE, fig.cap="\\label{fig:tree-confusion}Decision's tree confusion matrix for hall of fame.", fig.align="center"}
+tree.predicted <- predict(baseball.tree, test.sample,type="class")
+confusion.matrix <- table(as.factor(test.sample[,"Hall_of_Fame"]), tree.predicted)
+aux_confusion_matrix <- confusion.matrix
+colnames(aux_confusion_matrix) <- c("Predicted No","Predicted Yes")
+rownames(aux_confusion_matrix) <- c("True No","True Yes")
+
+kable(aux_confusion_matrix)
+```
+
+With these values we can calculate some interesting statistics about pur classifier. The accuracy of the classifier, that is the proportion of instances that are properly classified is `r round((sum(diag(confusion.matrix))/sum(confusion.matrix))*100,2)`%. Even though this value is pretty high, it is not really representative for our example since we want to ensure that the maximum possible of players that enter the hall of fame are properly classified. Thus, we can measure the miss rate for that case, and we get it is `r round(confusion.matrix[2,1]/ (confusion.matrix[2,1] + confusion.matrix[2,2])*100,2)`%. It can be seen that a high volume of the interesting indivduals are been wrongly classified over the test sample. This can be due to overfittiong of the model. 
+
+```{r include=F, cache=T}
+baseball.cptable <- as.data.frame(baseball.tree$cptable)
+minimum_error_index <- which.min(baseball.cptable$xerror)
+minimum_xerror <- baseball.cptable[minimum_error_index, 'xerror']
+minimum_xstd <- baseball.cptable[minimum_error_index, 'xstd']
+
+optimal_index <- 1
+while(baseball.cptable$xerror[optimal_index] > minimum_xerror + minimum_xstd)
+  optimal_index <- optimal_index + 1
+
+alpha <- baseball.cptable[optimal_index, 'CP']
+
+# Do the cut
+baseball.pruned.tree <- rpart::prune(baseball.tree, cp = alpha)
+```
+
+```{r echo=FALSE, fig.cap="\\label{fig:tree-pruned}Decission tree for hall of fame.", fig.pos="!t"}
+rpart.plot(baseball.pruned.tree, extra = 101)
+```
+
+To solve this issue we are going to try to prune the tree. The shape of the tree can be seen in figure \ref{fig:tree-pruned} and its performance over the test sample are shown below. 
+
+```{r echo=FALSE, fig.cap="\\label{fig:tree-confusion}Decision's tree confusion matrix for hall of fame.", fig.align="center"}
+# Tree statistics
+tree.predicted.pruned <- predict(baseball.pruned.tree, test.sample,type="class")
+confusion.matrix.pruned <- table(as.factor(test.sample[,"Hall_of_Fame"]), tree.predicted.pruned)
+aux_confusion_matrix <- confusion.matrix.pruned
+colnames(aux_confusion_matrix) <- c("Predicted No","Predicted Yes")
+rownames(aux_confusion_matrix) <- c("True No","True Yes")
+
+kable(aux_confusion_matrix)
+```
 
 
-
+With these new values we observe that now the accuracy of the classifier is `r round((sum(diag(confusion.matrix.pruned))/sum(confusion.matrix.pruned))*100,2)`% and the new value for the miss rate for the case of a player being in the hall of fame is `r round(confusion.matrix.pruned[2,1]/ (confusion.matrix.pruned[2,1] + confusion.matrix.pruned[2,2])*100,2)`%. Now, when comparing these values with the previous ones, we can see that the proportion of players that entered the hall of fame and were predicted to do so has increased.
 
 <!-- An example of a floating figure using the graphicx package. -->
 <!-- Note that \label must occur AFTER (or within) \caption. -->``
