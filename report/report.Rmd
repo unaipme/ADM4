@@ -3,6 +3,7 @@ title: How I got into the Hall of Fame
 header-includes:
   - \usepackage{xcolor}
   - \usepackage{lipsum}
+  - \usepackage{float}
   - \setlength{\parskip}{0.25em}
   - \pagenumbering{arabic}
 affiliation:
@@ -22,8 +23,7 @@ affiliation:
         - name: Damian Rubio Cuervo
           email: damian.rubio.cuervo@est.fib.upc.edu
 abstract: |
-  The abstract goes here.
-  On multiple lines eventually.
+  The Hall of Fame is a recognition to the best players in the history of American baseball. But, what are the particular set of skills that make a player worthy of entering into the Hall? The Hall of Fame dataset collects the statistics of the careers of more than a thousand baseball players. Only a few made it into the Hall of Fame. By means of exploratory data analysis, we have aimed to find the motives and argumentations behind the Hall of Fame. Finally, we have found that, even though personal taste of the committee members plays a significant role, mostly offensively skilled and outstanding players tend to make it into the Hall.
 
 #bibliography: mybibfile.bib
 output: rticles::ieee_article
@@ -177,33 +177,6 @@ legend("topleft", legend=c("Not Hall of Fame", "Hall of Fame"), fill=rev(rev(bre
 
 A player needs to stand out in as much statistics as possible to make into the Hall of Fame. In the end, as the plot in figure \ref{fig:rmahalanobis-distance} makes the most clear statement regarding what it really takes to be considered a great player: You need to be an outlier and, indeed, stand out in all the possible ways. Let's take a deeper look into all of this with some analysis.
 
-# Logistic regression
-
-Being the target variable categorical, the most appropriate way to perform a regression is through logistic regression. The output of this regression follows a Bernoulli distribution and permits the transformation into the categories of the variable. To do so, the version of the dataset with binary target variable has been used.
-
-The variables of the data are heterogeneous. Variable `Number_seasons` is an integer that ranges from `r min(baseball.dataset$Number_seasons)` to `r max(baseball.dataset$Number_seasons)`, and `Hits`, while also being an integer, ranges from `r min(baseball.dataset$Hits)` to `r max(baseball.dataset$Hits)`. Also, four of the variables are percentages (with decimals) going from 0 to 1. The variables need to be standardized so that they can be used together without causing distortion in the results.
-
-```{r include=F, cache=T}
-N <- nrow(baseball.dataset.binary)
-N.training <- ceiling(2 * N / 3)
-N.test <- N - N.training
-training.sample.indices <- sample(1:N, size = N.training)
-training.sample <- baseball.dataset.binary[training.sample.indices,]
-test.sample <- baseball.dataset.binary[-training.sample.indices,]
-
-train.control <- trainControl(method = "cv", number=10, sampling="up")
-model <- train(Hall_of_Fame ~ ., data = training.sample[,-16], preProcess = c("scale", "center"), method="glm", family=binomial(link="logit"), trControl=train.control)
-```
-
-```{r echo=F, fig.cap="\\label{fig:roc-table-log-regression}ROC table of the best logistic regression model", cache=T, out.extra=""}
-predicted.values <- predict(model$finalModel, newdata = test.sample)
-roc.pred <- prediction(predicted.values, test.sample$Hall_of_Fame)
-roc.perf <- performance(roc.pred, "tpr", "fpr")
-plot(roc.perf, colorized=T)
-```
-
-For the selection of the best possible model, the dataset has been split into a training and a test sets, each being two thirds and one third of the whole dataset, and a 10-fold cross validation process has been applied for the training. Due to the big disproportion between the Hall of Fame players and the no Hall of Fame players, it could be reasonable to think that the model could end up working with unbalanced samples and, therefore, underfit or biased. Actually, the random samples for the validation are pretty equally split. On the other hand, it could be easier to end up with unbalanced samples in the cross validation step. To avoid this, the Hall of Fame players have been oversampled. The best found model has an accuracy of `r round(model$results$Accuracy, 3)`, which is not great but is still really good. The ROC curve for the model is shown in figure \ref{fig:roc-table-log-regression}. The Area Under the Curve (AUC) is `r round(as.numeric(performance(roc.pred, measure="auc")@y.values), 3)`.
-
 # Clustering
 
 In order to see what variables of the dataset characterize more the individuals we are going to perform some component analysis. This will also allow us to perform some clustering techniques with just the part of the information that is more relevant for our analysis. The analysis we are going to do is called PCA. When doing such an analysis we can see how the different variables are respresented and how much of the information is given by each of the analysis. In figure \ref{fig:pca-analysis} we can see how the variables of the dataset correlate with the relevant dimensions. As we can see, the variables best represented in the first dimension are `RBIs` and `Games_played`, while only `Fielding_ave` seems to correlate with the second dimension.
@@ -218,6 +191,14 @@ pca.results <- PCA(baseball.dataset, quali.sup = 16:17, graph = F)
 
 ```{r echo=FALSE, fig.cap="\\label{fig:pca-analysis}PCA Analysis of the Hall Of Fame.", fig.pos="!t"}
 plot.PCA(pca.results, choix=c("varcor"))
+```
+
+```{r echo=F, fig.cap="\\label{fig:pca-quali-sup}Projection of the supplementary categorical variables"}
+plot(pca.results$quali.sup$coord[,1:2], xlim=c(-2.5,9), ylim = c(-1.75,1.75), pch=19, col="cornflowerblue")
+text(x=pca.results$quali.sup$coord[,1], y=pca.results$quali.sup$coord[,2] + .15, labels = row.names(pca.results$quali.sup$coord), cex=.8)
+abline(v=0,col="gray")
+abline(h=0,col="gray")
+grid()
 ```
 
 ```{r include=F}
@@ -319,6 +300,8 @@ legend("topleft", legend=c("Cluster 1", "Cluster 2"), pch=21, col=levels(as.fact
 
 # Classification
 
+Once the data has been explored, we propose two methods for the classification. To reduce generalization error, the holdout technique, along with cross validation and oversampling has been applied.
+
 ## Decision Trees
 
 In order to be able to create a classifier that will be able to predict whether a baseball player with certain records enter the hall of fame or not we are going to build a decission tree. For that purpose we start by creating two subsets of the data that will be used to do holdout validation. As we have a really unbalanced dataset we've been oblied to perform oversampling regarding the players that enter the hall of fame, since the amount of them present in the sample is much lower than those that did not.
@@ -342,20 +325,16 @@ baseball.tree <- rpart::rpart(Hall_of_Fame ~ ., data = training.sample, method =
                               control = rpart.control(cp = 0.000001, xval = 10))
 ```
 
-```{r echo=FALSE, fig.cap="\\label{fig:tree}Decission tree for hall of fame.", fig.pos="!t"}
-rpart.plot(baseball.tree)
-```
+In first place we start by creating a pure decission tree. The shape of the tree can be seen in figure \ref{fig:tree} and its performance over the test sample are shown in the table \ref{fig:confusion-tree}.
 
-In first place we start by creating a pure decission tree. The shape of the tree can be seen in figure \ref{fig:tree} and its performance over the test sample are shown below.
-
-```{r echo=FALSE, fig.cap="\\label{fig:tree-confusion}Decision's tree confusion matrix for hall of fame.", fig.align="center"}
+```{r echo=FALSE, fig.pos="H", out.extra="", fig.align="center"}
 tree.predicted <- predict(baseball.tree, test.sample,type="class")
 confusion.matrix <- table(as.factor(test.sample[,"Hall_of_Fame"]), tree.predicted)
 aux_confusion_matrix <- confusion.matrix
 colnames(aux_confusion_matrix) <- c("Predicted No","Predicted Yes")
 rownames(aux_confusion_matrix) <- c("True No","True Yes")
 
-kable(aux_confusion_matrix)
+kable(aux_confusion_matrix, caption = "\\label{fig:confusion-tree}Decision's tree confusion matrix for hall of fame.",)
 ```
 
 With these values we can calculate some interesting statistics about pur classifier. The accuracy of the classifier, that is the proportion of instances that are properly classified is `r round((sum(diag(confusion.matrix))/sum(confusion.matrix))*100,2)`%. Even though this value is pretty high, it is not really representative for our example since we want to ensure that the maximum possible of players that enter the hall of fame are properly classified. Thus, we can measure the miss rate for that case, and we get it is `r round(confusion.matrix[2,1]/ (confusion.matrix[2,1] + confusion.matrix[2,2])*100,2)`%. It can be seen that a high volume of the interesting indivduals are been wrongly classified over the test sample. This can be due to overfittiong of the model. 
@@ -376,13 +355,7 @@ alpha <- baseball.cptable[optimal_index, 'CP']
 baseball.pruned.tree <- rpart::prune(baseball.tree, cp = alpha)
 ```
 
-```{r echo=FALSE, fig.cap="\\label{fig:tree-pruned}Decission tree for hall of fame.", fig.pos="!t"}
-rpart.plot(baseball.pruned.tree, extra = 101)
-```
-
-To solve this issue we are going to try to prune the tree. The shape of the tree can be seen in figure \ref{fig:tree-pruned} and its performance over the test sample are shown below. 
-
-```{r echo=FALSE, fig.cap="\\label{fig:tree-confusion}Decision's tree confusion matrix for hall of fame.", fig.align="center"}
+```{r echo=FALSE, fig.pos="H", fig.align="center", out.extra=""}
 # Tree statistics
 tree.predicted.pruned <- predict(baseball.pruned.tree, test.sample,type="class")
 confusion.matrix.pruned <- table(as.factor(test.sample[,"Hall_of_Fame"]), tree.predicted.pruned)
@@ -390,108 +363,59 @@ aux_confusion_matrix <- confusion.matrix.pruned
 colnames(aux_confusion_matrix) <- c("Predicted No","Predicted Yes")
 rownames(aux_confusion_matrix) <- c("True No","True Yes")
 
-kable(aux_confusion_matrix)
+kable(aux_confusion_matrix, caption = "\\label{fig:confusion-tree-pruned}Pruned Decision's tree confusion matrix for hall of fame.")
 ```
 
+To solve this issue we are going to try to prune the tree. The shape of the tree can be seen in figure \ref{fig:tree-pruned} and its performance over the test sample are shown in table \ref{fig:confusion-tree-pruned}. 
 
 With these new values we observe that now the accuracy of the classifier is `r round((sum(diag(confusion.matrix.pruned))/sum(confusion.matrix.pruned))*100,2)`% and the new value for the miss rate for the case of a player being in the hall of fame is `r round(confusion.matrix.pruned[2,1]/ (confusion.matrix.pruned[2,1] + confusion.matrix.pruned[2,2])*100,2)`%. Now, when comparing these values with the previous ones, we can see that the proportion of players that entered the hall of fame and were predicted to do so has increased.
 
-<!-- An example of a floating figure using the graphicx package. -->
-<!-- Note that \label must occur AFTER (or within) \caption. -->``
-<!-- For figures, \caption should occur after the \includegraphics. -->
-<!-- Note that IEEEtran v1.7 and later has special internal code that -->
-<!-- is designed to preserve the operation of \label within \caption -->
-<!-- even when the captionsoff option is in effect. However, because -->
-<!-- of issues like this, it may be the safest practice to put all your -->
-<!-- \label just after \caption rather than within \caption{}. -->
+## Logistic regression
 
-<!-- Reminder: the "draftcls" or "draftclsnofoot", not "draft", class -->
-<!-- option should be used if it is desired that the figures are to be -->
-<!-- displayed while in draft mode. -->
+Being the target variable categorical, the most appropriate way to perform a regression is through logistic regression. The output of this regression follows a Bernoulli distribution and permits the transformation into the categories of the variable. To do so, the version of the dataset with binary target variable has been used.
 
-<!-- \begin{figure}[!t] -->
-<!-- \centering -->
-<!-- \includegraphics[width=2.5in]{myfigure} -->
-<!-- where an .eps filename suffix will be assumed under latex,  -->
-<!-- and a .pdf suffix will be assumed for pdflatex; or what has been declared -->
-<!-- via \DeclareGraphicsExtensions. -->
-<!-- \caption{Simulation results for the network.} -->
-<!-- \label{fig_sim} -->
-<!-- \end{figure} -->
+The variables of the data are heterogeneous. Variable `Number_seasons` is an integer that ranges from `r min(baseball.dataset$Number_seasons)` to `r max(baseball.dataset$Number_seasons)`, and `Hits`, while also being an integer, ranges from `r min(baseball.dataset$Hits)` to `r max(baseball.dataset$Hits)`. Also, four of the variables are percentages (with decimals) going from 0 to 1. The variables need to be standardized so that they can be used together without causing distortion in the results.
 
-<!-- Note that the IEEE typically puts floats only at the top, even when this -->
-<!-- results in a large percentage of a column being occupied by floats. -->
+```{r include=F, cache=T}
+N <- nrow(baseball.dataset.binary)
+N.training <- ceiling(2 * N / 3)
+N.test <- N - N.training
+training.sample.indices <- sample(1:N, size = N.training)
+training.sample <- baseball.dataset.binary[training.sample.indices,]
+test.sample <- baseball.dataset.binary[-training.sample.indices,]
 
+train.control <- trainControl(method = "cv", number=10, sampling="up")
+model <- train(Hall_of_Fame ~ ., data = training.sample[,-16], preProcess = c("scale", "center"), method="glm", family=binomial(link="logit"), trControl=train.control)
+```
 
-<!-- An example of a double column floating figure using two subfigures. -->
-<!-- (The subfig.sty package must be loaded for this to work.) -->
-<!-- The subfigure \label commands are set within each subfloat command, -->
-<!-- and the \label for the overall figure must come after \caption. -->
-<!-- \hfil is used as a separator to get equal spacing. -->
-<!-- Watch out that the combined width of all the subfigures on a  -->
-<!-- line do not exceed the text width or a line break will occur. -->
+```{r echo=F, fig.cap="\\label{fig:roc-table-log-regression}ROC table of the best logistic regression model", cache=T, out.extra=""}
+predicted.values <- predict(model$finalModel, newdata = test.sample)
+roc.pred <- prediction(predicted.values, test.sample$Hall_of_Fame)
+roc.perf <- performance(roc.pred, "tpr", "fpr")
+plot(roc.perf, colorized=T)
+```
 
-<!-- \begin{figure*}[!t] -->
-<!-- \centering -->
-<!-- \subfloat[Case I]{\includegraphics[width=2.5in]{box}% -->
-<!-- \label{fig_first_case}} -->
-<!-- \hfil -->
-<!-- \subfloat[Case II]{\includegraphics[width=2.5in]{box}% -->
-<!-- \label{fig_second_case}} -->
-<!-- \caption{Simulation results for the network.} -->
-<!-- \label{fig_sim} -->
-<!-- \end{figure*} -->
-
-<!-- Note that often IEEE papers with subfigures do not employ subfigure -->
-<!-- captions (using the optional argument to \subfloat[]), but instead will -->
-<!-- reference/describe all of them (a), (b), etc., within the main caption. -->
-<!-- Be aware that for subfig.sty to generate the (a), (b), etc., subfigure -->
-<!-- labels, the optional argument to \subfloat must be present. If a -->
-<!-- subcaption is not desired, just leave its contents blank, -->
-<!-- e.g., \subfloat[]. -->
-
-
-<!-- An example of a floating table. Note that, for IEEE style tables, the -->
-<!-- \caption command should come BEFORE the table and, given that table -->
-<!-- captions serve much like titles, are usually capitalized except for words -->
-<!-- such as a, an, and, as, at, but, by, for, in, nor, of, on, or, the, to -->
-<!-- and up, which are usually not capitalized unless they are the first or -->
-<!-- last word of the caption. Table text will default to \footnotesize as -->
-<!-- the IEEE normally uses this smaller font for tables. -->
-<!-- The \label must come after \caption as always. -->
-
-<!-- \begin{table}[!t] -->
-<!-- % increase table row spacing, adjust to taste -->
-<!-- \renewcommand{\arraystretch}{1.3} -->
-<!-- if using array.sty, it might be a good idea to tweak the value of -->
-<!-- \extrarowheight as needed to properly center the text within the cells -->
-<!-- \caption{An Example of a Table} -->
-<!-- \label{table_example} -->
-<!-- \centering -->
-<!-- % Some packages, such as MDW tools, offer better commands for making tables -->
-<!-- % than the plain LaTeX2e tabular which is used here. -->
-<!-- \begin{tabular}{|c||c|} -->
-<!-- \hline -->
-<!-- One & Two\\ -->
-<!-- \hline -->
-<!-- Three & Four\\ -->
-<!-- \hline -->
-<!-- \end{tabular} -->
-<!-- \end{table} -->
-
-
-<!-- Note that the IEEE does not put floats in the very first column -->
-<!-- - or typically anywhere on the first page for that matter. Also, -->
-<!-- in-text middle ("here") positioning is typically not used, but it -->
-<!-- is allowed and encouraged for Computer Society conferences (but -->
-<!-- not Computer Society journals). Most IEEE journals/conferences use -->
-<!-- top floats exclusively.  -->
-<!-- Note that, LaTeX2e, unlike IEEE journals/conferences, places -->
-<!-- footnotes above bottom floats. This can be corrected via the -->
-<!-- \fnbelowfloat command of the stfloats package. -->
-
+For the selection of the best possible model, the dataset has been split into a training and a test sets, each being two thirds and one third of the whole dataset, and a 10-fold cross validation process has been applied for the training. Due to the big disproportion between the Hall of Fame players and the no Hall of Fame players, it could be reasonable to think that the model could end up working with unbalanced samples and, therefore, underfit or biased. Actually, the random samples for the validation are pretty equally split. On the other hand, it could be easier to end up with unbalanced samples in the cross validation step. To avoid this, the Hall of Fame players have been oversampled. The best found model has an accuracy of `r round(model$results$Accuracy, 3)`, which is not great but is still really good. The ROC curve for the model is shown in figure \ref{fig:roc-table-log-regression}. The Area Under the Curve (AUC) is `r round(as.numeric(performance(roc.pred, measure="auc")@y.values), 3)`.
 
 # Conclusion
+
+```{r echo=FALSE, fig.cap="\\label{fig:tree}Pruned decission tree for hall of fame.", fig.pos="!t", out.extra=""}
+rpart.plot(baseball.tree)
+```
+
+To begin with, the Principal Component Analysis results in the variable projection shown in figure \ref{fig:pca-analysis}, which leads to two main conclusions. First, the most significant variables are related to offensive skills. This can be seen as the arrows that point the most to the right. Then, on the completely perpendicular direction, the only skill related to defense is found. As seen in the figure \ref{fig:pca-quali-sup}, the horizontal axis is tightly tied to being accepted in the Hall of Fame.
+
+The same figure \ref{fig:pca-quali-sup} also shows that no position is strictly correlated with getting accepted into the Hall of Fame. If anything, the designated hitter is related with the best fielding average, which does not make any sense, as they just do not defend.
+
+```{r echo=FALSE, fig.cap="\\label{fig:tree-pruned}Decission tree for hall of fame.", fig.pos="!b", out.extra=""}
+rpart.plot(baseball.pruned.tree, extra = 101)
+```
+
+To further see if we were able to find a correlation between the statistical data we possessed, and the players entering the Hall of Fame we have decided to perform clustering. This clustering has been performed in two steps were consolidation played a key role to obtain better results. As an output we have obtained a reasonable split of the baseball players in two groups as it was expected from a priori knowledge on the classes of the problem. This clusters allowed us to identify, with an acceptable degree of certainity the players that have entered the Hall of Fame.
+
+In order to build a model that properly classifies the players as entering the hall of fame or not we have followed two different approaches. First of all, we have started building a decission tree. In the first attept of building such a model the results were kind of disappointing, but after the proper prunning we have succeeded on avoiding the overfitting of the tree to training dataset. Thus, the results of the prunned decission tree outperformed those of the original one.
+
+The second classification model built was a logistic regression one, a variation of linear regression aimed at predicting binary target variables. As stated in the corresponding section, after performing 10-fold cross validation the obtained model, although improvable, is pretty good and is able to achieve an accuracy of close to 90%.
 
 <!-- Here are two sample references: @Feynman1963118 [@Dirac1953888]. -->
 

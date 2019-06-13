@@ -8,3 +8,4 @@ report/*
 !report/report.Rmd
 !report/IEEEtran.bst
 !report/IEEEtran.cls
+!report/report.pdf
