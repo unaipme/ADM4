@@ -3,10 +3,6 @@ title: How I got into the Hall of Fame
 header-includes:
   - \usepackage{xcolor}
   - \usepackage{lipsum}
-  - \usepackage{tabu}
-  - \usepackage{booktabs}
-  - \usepackage{colortbl}
-  - \usepackage{float}
   - \setlength{\parskip}{0.25em}
   - \pagenumbering{arabic}
 affiliation:
@@ -38,6 +34,9 @@ library(DMwR)
 library(chemometrics)
 library(FactoMineR)
 library(fpc)
+library(caret)
+library(RColorBrewer)
+library(ROCR)
 
 baseball.dataset <- read.csv("../baseball.csv", na.strings = c('?'),
     colClasses = c("character", rep("integer", 11), rep("double", 4), rep("factor", 2)))
@@ -73,9 +72,7 @@ The dataset has `r nrow(baseball.dataset)` observations, from which, only `r len
 Values `1` and `2` of the class target `Hall_Of_Fame`, which is a factor, count as being in the Hall of Fame. The different values make a reference to the evaluation committee that accepted the players into the Hall. Depending on what procedure or analysis is run over the dataset, it might be useful to keep the different committees well labelled and differentiated. On the other hand, there are very few Hall of Fame players, so dividing them into two smaller categories seems unprofitable; the samples would get very small. The two categorizations have been kept for potential usage.
 
 ```{r include=FALSE, cache=F}
-baseball.dataset.binary <- data.frame(baseball.dataset)
 levels(baseball.dataset$Hall_of_Fame) <- c("no", "BBWAA", "VC")
-levels(baseball.dataset.binary$Hall_of_Fame) <- c("no", "yes", "yes")
 ```
 
 As for the individuals, the name `ELMER_SMITH` is duplicated. A quick search in Wikipedia tells that there are two former players by the name of Elmer Smith. The data matches: One had played 10 seasons and the other 14, so it is not mislabelled data, and removing it would mean data loss. According to Wikipedia, the one that played 14 seasons is however more generally known as Mike Smith. So its name was replaced to `MIKE_SMITH`, which does not match any other player in the set. Also, the players' names are originally considered as one variable. They are going to be used as the row names and the variable is going to be removed.
@@ -98,7 +95,6 @@ na.strikeouts <- which(is.na(baseball.dataset$Strikeouts))
 baseball.dataset.knn <- knnImputation(baseball.dataset)
 baseball.dataset.knn$Strikeouts <- round(baseball.dataset.knn$Strikeouts)
 baseball.dataset$Strikeouts[na.strikeouts] <- baseball.dataset.knn$Strikeouts[na.strikeouts]
-baseball.dataset.binary$Strikeouts[na.strikeouts] <- baseball.dataset.knn$Strikeouts[na.strikeouts]
 ```
 
 ## Outliers
@@ -113,9 +109,9 @@ boxplot(baseball.dataset[baseball.dataset$Hall_of_Fame == "no", "RBIs"], outcol=
 par(mfrow=c(1, 1))
 ```
 
-But, as for the averaging statistics, a different criteria should be applied. Specifically, the `Fielding_ave` variable has a maximum value of exactly `1`. Only one player, labelled as `r row.names(baseball.dataset)[which.max(baseball.dataset$Fielding_ave)]`, has the given value. This would mean that every time the player defended, the opposing team scored no runs. Still, the player did not make it into the Hall of Fame. Also, the mean of the variable is pretty high (`r mean(baseball.dataset$Fielding_ave)`). Without any more knowledge, this will not be considered an outlier.
+But, as for the averaging statistics, a different criteria should be applied. Specifically, the `Fielding_ave` variable has a maximum value of exactly `1`. Only one player, labelled as `r row.names(baseball.dataset)[which.max(baseball.dataset$Fielding_ave)]`, has the given value. This would mean that every time the player defended, the opposing team scored no runs. Still, the player did not make it into the Hall of Fame. However, the mean of the variable is pretty high (`r mean(baseball.dataset$Fielding_ave)`). Without any more knowledge, this will not be considered an outlier.
 
-As for multivariate outliers, the robustified Mahalanobis distance has been used for their detection. The plots of figure \ref{fig:rmahalanobis-distance} represent the distances of the individuals. The plot on the left shows in red those players that made it into the Hall of Fame, and in blue the ones that did not. It is obvious that the plot considers most of the players in the hall of fame as outliers, and there is a reason for that: They were considered for the hall of fame for their outstanding stats and performances indeed. These players kind of behave like outliers in real life, but that is the point. So, we have decided not to treat them as outliers.
+As for multivariate outliers, the robustified Mahalanobis distance has been used for their detection. The plots of figure \ref{fig:rmahalanobis-distance} represent the distances of the individuals. The plot on the left shows in red those players that made it into the Hall of Fame, and in blue the ones that did not. It is obvious that the plot considers most of the players in the hall of fame as outliers, and there is a reason for that: They were considered for the hall of fame for their outstanding stats and performances indeed. These players kind of behave like outliers in real life, but that is the point. So, they will not be treated as outliers.
 
 ```{r include=FALSE}
 all.outliers <- Moutlier(baseball.dataset[,1:15], plot=F)
@@ -136,7 +132,7 @@ axis(1, cex.axis=.6)
 par(mfrow=c(1,1))
 ```
 
-The plot on the right of the above figure shows only players that are not in the hall of fame. It can be seen that some players still exceed other players. These could actually be considered outliers. If we consider to discard the 2.5% of the individuals, this is, `r nrow(baseball.dataset) * 0.025` with the greatest robustified Mahalanobis distance for being outliers, then those individuals plotted in red will be discarded. The player that most outlies from those excluded from the hall of fame actually has stats that are outstanding, so one can not help but wonder why he was not included. This player is Pete Rose and, as noted by Wikipedia, he has been involved in tax evasion and gambling controversy, which probably affected the commitees' decision making.
+The plot on the right of the figure \ref{fig:rmahalanobis-distance} shows only players that are not in the hall of fame. It can be seen that some players still exceed other players. These could actually be considered outliers. If we consider to discard the 2.5% of the individuals, this is, the `r ceiling(nrow(baseball.dataset) * 0.025)` with the greatest robustified Mahalanobis distance for being outliers, then those individuals plotted in red will be discarded. The player that most outlies from those excluded from the hall of fame actually has stats that are outstanding, so one can not help but wonder why he was not included. This player is Pete Rose and, as noted by [`Wikipedia`](https://en.wikipedia.org/wiki/Pete_Rose), he has been involved in tax evasion and gambling controversy, which probably affected the commitees' decision making.
 
 ```{r include=FALSE, cache=F}
 baseball.dataset <- baseball.dataset[-which(rownames(baseball.dataset) %in% no.hall.outlier.names),]
@@ -144,7 +140,41 @@ baseball.dataset <- baseball.dataset[-which(rownames(baseball.dataset) %in% no.h
 
 # Data exploration
 
-Now we have to explore the data and obtain some basic graphs and conclusions: \lipsum[1]
+Most of the variables of the dataset are continuous, but it is possible to apply the Naïve Bayes predictor after a discretization process. To do so, certain ranges of the data will be transformed into categories. This must be done for all variables, but each variable will require specific adjustments depending on its range of values. For example, variable `Number_seasons` ranges from 10 to 26. The histogram in figure ?? shows how this variable is distributed.
+
+```{r echo=F}
+baseball.dataset.binary <- data.frame(baseball.dataset)
+levels(baseball.dataset.binary$Hall_of_Fame) <- c("no", "yes", "yes")
+barplot(table(baseball.dataset.binary$Hall_of_Fame, baseball.dataset.binary$Number_seasons), col=rev(brewer.pal(4, "Purples"))[1:2])
+legend("topright", legend=c("Hall of Fame", "Not Hall of Fame"), fill=rev(brewer.pal(4, "Purples"))[1:2])
+```
+
+# Logistic regression
+
+Being the target variable categorical, the most appropriate way to perform a regression is through logistic regression. The output of this regression follows a Bernoulli distribution and permits the transformation into the categories of the variable. To do so, the version of the dataset with binary target variable has been used.
+
+The variables of the data are heterogeneous. Variable `Number_seasons` is an integer that ranges from `r min(baseball.dataset$Number_seasons)` to `r max(baseball.dataset$Number_seasons)`, and `Hits`, while also being an integer, ranges from `r min(baseball.dataset$Hits)` to `r max(baseball.dataset$Hits)`. Also, four of the variables are percentages (with decimals) going from 0 to 1. The variables need to be standardized so that they can be used together without causing distortion in the results.
+
+```{r include=F}
+N <- nrow(baseball.dataset.binary)
+N.training <- ceiling(2 * N / 3)
+N.test <- N - N.training
+training.sample.indices <- sample(1:N, size = N.training)
+training.sample <- baseball.dataset.binary[training.sample.indices,]
+test.sample <- baseball.dataset.binary[-training.sample.indices,]
+
+train.control <- trainControl(method = "cv", number=10, sampling="up")
+model <- train(Hall_of_Fame ~ ., data = training.sample[,-16], preProcess = c("scale", "center"), method="glm", family=binomial(link="logit"), trControl=train.control)
+```
+
+```{r echo=F, fig.cap="\\label{fig:roc-table-log-regression}ROC table of the best logistic regression model"}
+predicted.values <- predict(model$finalModel, newdata = test.sample)
+roc.pred <- prediction(predicted.values, test.sample$Hall_of_Fame)
+roc.perf <- performance(roc.pred, "tpr", "fpr")
+plot(roc.perf, colorized=T)
+```
+
+For the selection of the best possible model, the dataset has been split into a training and a test sets, each being two thirds and one third of the whole dataset, and a 10-fold cross validation process has been applied for the training. Due to the big disproportion between the Hall of Fame players and the no Hall of Fame players, it could be reasonable to think that the model could end up working with unbalanced samples and, therefore, underfit or biased. Actually, the random samples for the validation are pretty equally split. On the other hand, it could be easier to end up with unbalanced samples in the cross validation step. To avoid this, the Hall of Fame players have been oversampled. The best found model has an accuracy of `r round(model$results$Accuracy, 3)`, which is not great but is still really good. The ROC curve for the model is shown in figure \ref{fig:roc-table-log-regression}. The Area Under the Curve (AUC) is `r round(performance(roc.pred, measure="auc")@y.values, 3)`.
 
 # Clustering
 
@@ -264,7 +294,7 @@ legend("topleft", legend=c("Cluster 1", "Cluster 2"), pch=21, col=levels(as.fact
 
 
 <!-- An example of a floating figure using the graphicx package. -->
-<!-- Note that \label must occur AFTER (or within) \caption. -->
+<!-- Note that \label must occur AFTER (or within) \caption. -->``
 <!-- For figures, \caption should occur after the \includegraphics. -->
 <!-- Note that IEEEtran v1.7 and later has special internal code that -->
 <!-- is designed to preserve the operation of \label within \caption -->
