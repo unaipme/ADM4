@@ -140,13 +140,36 @@ baseball.dataset <- baseball.dataset[-which(rownames(baseball.dataset) %in% no.h
 
 # Data exploration
 
-Most of the variables of the dataset are continuous, but it is possible to apply the Naïve Bayes predictor after a discretization process. To do so, certain ranges of the data will be transformed into categories. This must be done for all variables, but each variable will require specific adjustments depending on its range of values. For example, variable `Number_seasons` ranges from 10 to 26. The histogram in figure ?? shows how this variable is distributed.
+Via visual data exploration, we might be able to obtain some useful information about the criteria of admission into the Hall of Fame. For example, one can reasonably think that the players that have the longest careers should be good enough or, at least, some kind of recognisable figure that is worth the acceptance into the Hall of Fame. Nevertheless, as barplot in figure \ref{fig:season-barplot} shows, there is no strong correlation between the season amount and the Hall of Fame. As careers grow longer, players that keep playing do end up getting accepted, but the amount of players accepted per each bar does not vary too much.
 
-```{r echo=F}
+```{r echo=F, fig.cap="\\label{fig:season-barplot}Stacked barplot for played seasons"}
 baseball.dataset.binary <- data.frame(baseball.dataset)
 levels(baseball.dataset.binary$Hall_of_Fame) <- c("no", "yes", "yes")
-barplot(table(baseball.dataset.binary$Hall_of_Fame, baseball.dataset.binary$Number_seasons), col=rev(brewer.pal(4, "Purples"))[1:2])
-legend("topright", legend=c("Hall of Fame", "Not Hall of Fame"), fill=rev(brewer.pal(4, "Purples"))[1:2])
+barplot(table(baseball.dataset.binary$Hall_of_Fame, cut(baseball.dataset.binary$Number_seasons, breaks = seq(min(baseball.dataset.binary$Number_seasons), max(baseball.dataset.binary$Number_seasons), length.out = 5))), col=rev(brewer.pal(4, "Purples"))[1:2])
+legend("topright", legend=c("Hall of Fame", "Not Hall of Fame"), fill=rev(rev(brewer.pal(4, "Purples"))[1:2]))
+```
+
+```{r include=F, warning=F}
+chisq <- chisq.test(baseball.dataset[,c("Number_seasons", "Games_played")])
+```
+
+Variable `Games_played` should be strongly correlated with `Number_seasons`, meaning the variables are statistically dependent. Running a $\chi^2$ test with the two variables gives a p-value of `r round(chisq$p.value, 3)`, which allows us to reject the null hypothesis $H_0$ that states that the variables are independent. And thus, the barplot on figure \ref{fig:games-played-barplot} does not show a but a slight increase in the number of Hall of Fame players. All variables are mostly related to `Number_seasons`, because the more seasons a player plays, the highest chance he has of scoring more in this statistics. Actually, the $\chi^2$ p-value for the whole dataset is `r round(chisq.test(baseball.dataset[,1:15])$p.value, 6)`, so no independece can be taken for granted.
+
+```{r echo=F, fig.cap="\\label{fig:games-played-barplot}Stacked barplot of played games"}
+range.games.played <- cut(baseball.dataset.binary$Games_played, breaks = seq(min(baseball.dataset.binary$Games_played), max(baseball.dataset.binary$Games_played), length.out = 10), dig.lab = 5)
+games.played.barplot <- barplot(table(baseball.dataset.binary$Hall_of_Fame, range.games.played), col=rev(brewer.pal(4, "Blues"))[1:2], xaxt="n")
+text(x = games.played.barplot + .5, y = -13, labels=levels(range.games.played), xpd=T, srt=30, pos=2)
+text(x = games.played.barplot, y = margin.table(table(baseball.dataset.binary$Hall_of_Fame, range.games.played), 2) + 10, labels=table(baseball.dataset.binary$Hall_of_Fame, range.games.played)[2,], xpd=T)
+legend("topright", legend=c("Hall of Fame", "Not Hall of Fame"), fill=rev(rev(brewer.pal(4, "Blues"))[1:2]))
+```
+
+Oddly enough, baseball is a mostly defensive sport. The defensive part of it is when players need a more strategic and collaborative response. And, still, most of the variables are related to the offensive part of baseball, and, therefore, they are closely tied to the amount of games and seasons. That is the case for all but the `Fielding_ave` variable, which refers to the amount of plays in which the player has taken part into the putout of another player.
+
+```{r echo=F, fig.cap="\\label{fig:fielding-ave-barplot}"}
+fielding.ave.range <- cut(baseball.dataset.binary$Fielding_ave, breaks = seq(min(baseball.dataset.binary$Fielding_ave), max(baseball.dataset.binary$Fielding_ave), length.out = 10))
+fielding.barplot <- barplot(table(baseball.dataset.binary$Hall_of_Fame, fielding.ave.range), xaxt='n', col=rev(brewer.pal(3, "Greens"))[1:2])
+text(x = fielding.barplot + .5, y = -20, labels=levels(fielding.ave.range), xpd=T, srt=30, pos=2)
+legend("topleft", legend=c("Not Hall of Fame", "Hall of Fame"), fill=rev(rev(brewer.pal(3, "Greens"))[1:2]))
 ```
 
 # Logistic regression
@@ -155,7 +178,7 @@ Being the target variable categorical, the most appropriate way to perform a reg
 
 The variables of the data are heterogeneous. Variable `Number_seasons` is an integer that ranges from `r min(baseball.dataset$Number_seasons)` to `r max(baseball.dataset$Number_seasons)`, and `Hits`, while also being an integer, ranges from `r min(baseball.dataset$Hits)` to `r max(baseball.dataset$Hits)`. Also, four of the variables are percentages (with decimals) going from 0 to 1. The variables need to be standardized so that they can be used together without causing distortion in the results.
 
-```{r include=F}
+```{r include=F, cache=T}
 N <- nrow(baseball.dataset.binary)
 N.training <- ceiling(2 * N / 3)
 N.test <- N - N.training
@@ -167,14 +190,14 @@ train.control <- trainControl(method = "cv", number=10, sampling="up")
 model <- train(Hall_of_Fame ~ ., data = training.sample[,-16], preProcess = c("scale", "center"), method="glm", family=binomial(link="logit"), trControl=train.control)
 ```
 
-```{r echo=F, fig.cap="\\label{fig:roc-table-log-regression}ROC table of the best logistic regression model"}
+```{r echo=F, fig.cap="\\label{fig:roc-table-log-regression}ROC table of the best logistic regression model", cache=T}
 predicted.values <- predict(model$finalModel, newdata = test.sample)
 roc.pred <- prediction(predicted.values, test.sample$Hall_of_Fame)
 roc.perf <- performance(roc.pred, "tpr", "fpr")
 plot(roc.perf, colorized=T)
 ```
 
-For the selection of the best possible model, the dataset has been split into a training and a test sets, each being two thirds and one third of the whole dataset, and a 10-fold cross validation process has been applied for the training. Due to the big disproportion between the Hall of Fame players and the no Hall of Fame players, it could be reasonable to think that the model could end up working with unbalanced samples and, therefore, underfit or biased. Actually, the random samples for the validation are pretty equally split. On the other hand, it could be easier to end up with unbalanced samples in the cross validation step. To avoid this, the Hall of Fame players have been oversampled. The best found model has an accuracy of `r round(model$results$Accuracy, 3)`, which is not great but is still really good. The ROC curve for the model is shown in figure \ref{fig:roc-table-log-regression}. The Area Under the Curve (AUC) is `r round(performance(roc.pred, measure="auc")@y.values, 3)`.
+For the selection of the best possible model, the dataset has been split into a training and a test sets, each being two thirds and one third of the whole dataset, and a 10-fold cross validation process has been applied for the training. Due to the big disproportion between the Hall of Fame players and the no Hall of Fame players, it could be reasonable to think that the model could end up working with unbalanced samples and, therefore, underfit or biased. Actually, the random samples for the validation are pretty equally split. On the other hand, it could be easier to end up with unbalanced samples in the cross validation step. To avoid this, the Hall of Fame players have been oversampled. The best found model has an accuracy of `r round(model$results$Accuracy, 3)`, which is not great but is still really good. The ROC curve for the model is shown in figure \ref{fig:roc-table-log-regression}. The Area Under the Curve (AUC) is `r round(as.numeric(performance(roc.pred, measure="auc")@y.values), 3)`.
 
 # Clustering
 
