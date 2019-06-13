@@ -36,6 +36,8 @@ output: rticles::ieee_article
 ```{r include=F}
 library(DMwR)
 library(chemometrics)
+library(FactoMineR)
+library(fpc)
 
 baseball.dataset <- read.csv("../baseball.csv", na.strings = c('?'),
     colClasses = c("character", rep("integer", 11), rep("double", 4), rep("factor", 2)))
@@ -143,6 +145,123 @@ baseball.dataset <- baseball.dataset[-which(rownames(baseball.dataset) %in% no.h
 # Data exploration
 
 Now we have to explore the data and obtain some basic graphs and conclusions: \lipsum[1]
+
+# Clustering
+
+```{r include=F}
+baseball.dataset.pca <- data.frame(baseball.dataset)
+baseball.dataset.pca[,1:15] <- scale(baseball.dataset.pca[,1:15])
+pca.results <- PCA(baseball.dataset, quali.sup = 16:17)
+```
+
+```{r echo=FALSE, fig.cap="\\label{fig:pca-analysis}PCA Analysis of the Hall Of Fame.", fig.pos="!t"}
+plot.PCA(pca.results, choix=c("varcor"))
+```
+
+In order to see what variables of the dataset characterize more the individuals we are going to perform some component analysis. This will also allow us to perform some clustering techniques with just the part of the information that is more relevant for our analysis. The analysis we are going to do is called PCA. When doing such an analysis we can see how the different variables are respresented and how much of the information is given by each of the analysis. In figure \ref{fig:pca-analysis} we can see how the variables of the dataset correlate with the relevant dimensions. As we can see, the variables best represented in the first dimension are `RBIs` and `Games_played`, while only `Fielding_ave` seems to correlate with the second dimension.
+
+As we want to reduce the dimensionality of the data to be able to visualize and analyze it in a better way, we will have to decide how many dimensions are relvant to us. For that purpose we will use all that dimensions that will allow us to guarantee that we are preserving at least 80% of the information on the sample. In this case, that threshold is reached with just the three first dimensions. From now on, an in order to perform the clustering we will use the coordinates of the individuals in just those three dimensions.
+
+```{r include=F}
+baseball.data.matrix <- pca.results$ind$coord[,1:3]
+baseball.distance.matrix <- dist(baseball.data.matrix, upper = TRUE, diag = TRUE)
+baseball.hclust <- hclust(d = baseball.distance.matrix, method = 'ward.D2')
+baseball.hclust.clusters <- cutree(baseball.hclust, k = 2)
+
+# Comparing yes/no hall of fame results with the clusters
+baseball.clustered <- cbind(baseball.dataset, baseball.hclust.clusters)
+colnames(baseball.clustered) <- c(colnames(baseball.dataset), "Cluster")
+
+# Players in cluster n1: 347
+n1_total <- nrow(baseball.clustered[baseball.clustered$Cluster == 1,])
+# Players in cluster n1 and Hall of fame: 116
+n1_yes <- nrow(baseball.clustered[baseball.clustered$Cluster == 1 & baseball.clustered$Hall_of_Fame != 'no',])
+# Players in cluster n2: 959
+n2_total <- nrow(baseball.clustered[baseball.clustered$Cluster == 2,])
+# Players in cluster n2 and Hall of fame: 9
+n2_yes <- nrow(baseball.clustered[baseball.clustered$Cluster == 2 & baseball.clustered$Hall_of_Fame != 'no',])
+```
+
+The approach to clustering will be based on performing first a Hierarchical Clustering cutting it with the a priori knowledge we have, that is that there are only to clusters, one formed by players that entered the whole of fame and other with the ones that did not. In order to perform the clustering we will use the Ward distance metric. The results of this clustering are not trully representative of the classes that we know that exist in the data. If we cut the tree so that it gives us two clusters we will have `r n1_total` and `r n2_total` individuals in each cluster. The hall of fame players are divided as `r n1_yes` in the first cluster and `r n2_yes` in the second cluster. This tells us that `r round(n1_yes/(n1_yes+n2_yes)*100, 2)`% of them have been classified as been in the first cluster, but there they only represent `r round(n1_yes/n1_total*100, 2)`% of the total of individuals.
+
+```{r include=F}
+# Create a function to calculate the Calinski-Harabassz index
+calinski_index = function(coordinates, hierarchical, n_clusters, consolidation) {
+  # Get the clusters
+  clusters = cutree(hierarchical, n_clusters)
+  # Create a dataframe with the coordinates + the cluster
+  df = data.frame(coordinates, Cluster = as.factor(clusters))
+  if (consolidation == FALSE) { # if it is previous to consolidation step
+    # Calculate the Calinski-Harabassz index
+    index_value = calinhara(coordinates, df$Cluster, cn = max(clusters))
+  }
+  if (consolidation == TRUE) { # if it is posterior to consolidation step
+    # Calculate the centroids with hierarchical
+    centroids = aggregate(coordinates, list(df$Cluster), mean)
+    # k-means taking as seeds the centroids calculated with hierarchical
+    k_means = kmeans(coordinates, centers = centroids[,-1])
+    # Create a dataframe with the coordinates + the k-means cluster
+    df2 = data.frame(coordinates, Cluster = as.factor(k_means$cluster))
+    # Calculate the Calinski-Harabassz index
+    index_value = calinhara(coordinates, df2$Cluster, cn = max(k_means$cluster))
+  }
+  return(index_value)
+}
+
+# Create a vector with the Calinski index PRE consolidation for different values of k
+baseball.calinski.hclust = calinski_index(pca.results$ind$coord[,1:3], baseball.hclust, 2, consolidation = FALSE)
+for (i in 3:10){
+  baseball.calinski.hclust = append(baseball.calinski.hclust, calinski_index(pca.results$ind$coord[,1:3], baseball.hclust, i, consolidation = FALSE))
+}
+
+# Create a vector with the Calinski index POST consolidation for different values of k
+baseball.calinski.kmeans = calinski_index(pca.results$ind$coord[,1:3], baseball.hclust, 2, consolidation = TRUE)
+for (i in 3:10){
+  baseball.calinski.kmeans = append(baseball.calinski.kmeans, calinski_index(pca.results$ind$coord[,1:3], baseball.hclust, i, consolidation = TRUE))
+}
+```
+
+```{r echo=FALSE, fig.cap="\\label{fig:calinski-harabassz}Clustering Evaluation by CH Index.", fig.pos="!t"}
+# Plot the values of Calinski index
+plot(baseball.calinski.kmeans, type = "o", xlab = 'Number of clusters', ylim=c(500,1300), ylab = 'Calinski value', main = 'Calinski-Harabassz Index', col = 'blue', xaxt = "n")
+lines(baseball.calinski.hclust, type = "o", col = 'red', xaxt = "n")
+axis(1, at=1:9, labels = c(2, 3, 4, 5, 6, 7, 8, 9, 10))
+legend(5.5, 1320, legend=c("Index Before Consolodiation", "Index After Consolodiation"),
+       col=c("red", "blue"), lty=c(1,1), cex=0.8)
+```
+
+In order to improve these results we are going to perform a consoloditaion step. This step will consist of a k-means clustering procedure that will start from the centroids of the clusters found in the hierarchical clustering and then iterationg until the optimal local solution is found. With the purpose of assesing to this step a metric that tells us if it improves the results we are going to use the Calinski-Harabassz index. This index has been run over both clusters, the hierarchical clustering without consolidation and the consolidated one. The results can be seen in figure \ref{fig:calinski-harabassz}. The greater the value of the index, the better the clustering has been. Thus, we should consider the consolidated clustering with just two clusters, the best result for this problem.
+
+```{r include=F}
+# Calculate the centroids with hierarchical
+baseball.hclust.centroids = aggregate(baseball.data.matrix, list(baseball.hclust.clusters), mean)
+baseball.cluster.consolidated = kmeans(baseball.data.matrix, centers = baseball.hclust.centroids[,-1])
+
+# Comparing yes/no hall of fame results with the clusters
+baseball.clustered <- cbind(baseball.dataset, baseball.cluster.consolidated$cluster)
+colnames(baseball.clustered) <- c(colnames(baseball.dataset), "Cluster")
+
+# Players in cluster n1: 347
+n1_consolidated_total <- nrow(baseball.clustered[baseball.clustered$Cluster == 1,])
+# Players in cluster n1 and Hall of fame: 116
+n1_consolidated_yes <- nrow(baseball.clustered[baseball.clustered$Cluster == 1 & baseball.clustered$Hall_of_Fame != 'no',])
+# Players in cluster n2: 959
+n2_consolidated_total <- nrow(baseball.clustered[baseball.clustered$Cluster == 2,])
+# Players in cluster n2 and Hall of fame: 9
+n2_consolidated_yes <- nrow(baseball.clustered[baseball.clustered$Cluster == 2 & baseball.clustered$Hall_of_Fame != 'no',])
+```
+
+Now, the clustering provides us with the following results. The clusters split the baseball players so that cluster one contains `r n1_consolidated_total` and cluster two contains `r n2_consolidated_total` individuals. The hall of fame players are divided as `r n1_consolidated_yes` in the first cluster and `r n2_consolidated_yes` in the second cluster. This tells us that `r round(n1_consolidated_yes/(n1_consolidated_yes+n2_consolidated_yes)*100, 2)`% of the hall of fame players have been allocated into the first cluster, and that now they represent up to `r round(n1_consolidated_yes/n1_consolidated_total*100, 2)`% of the total of individuals in that cluster. These results prove to be much better than before. The distribution of the indivudals in the clusters over the first two dimensions found in the principal component analysis can be seen in figure \ref{fig:consolidated-clusters}.
+
+```{r echo=FALSE, fig.cap="\\label{fig:consolidated-clusters}Clustering of Hall Of Fame.", fig.pos="!t"}
+# Plot the clusters
+plot(baseball.data.matrix[,1], baseball.data.matrix[,2],col=as.vector(baseball.clustered$Cluster), main = 'Consolidated Clustering', xlab = 'Dimension 1', ylab = 'Dimension 2')
+legend("topleft", legend=c("Cluster 1", "Cluster 2"), pch=21, col=levels(as.factor(baseball.clustered$Cluster)))
+```
+
+
+
+
 
 <!-- An example of a floating figure using the graphicx package. -->
 <!-- Note that \label must occur AFTER (or within) \caption. -->
