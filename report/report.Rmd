@@ -102,6 +102,25 @@ baseball.dataset$Strikeouts[na.strikeouts] <- baseball.dataset.knn$Strikeouts[na
 
 ## Outliers
 
+```{r include=FALSE}
+all.outliers <- Moutlier(baseball.dataset[,1:15], plot=F)
+no.hall.outliers <- Moutlier(baseball.dataset[baseball.dataset$Hall_of_Fame == "no",1:15], plot=F)
+par(mfrow=c(1,1))
+```
+
+```{r echo=FALSE, fig.cap="\\label{fig:rmahalanobis-distance}Mahalanobis distances with and without Hall of Fame", fig.pos="!b", out.extra=''}
+par(mfrow=c(1,2))
+plot(x=1:length(all.outliers$rd), y=all.outliers$rd, pch=19, cex=0.7, axes=F, xlab="", ylab="", col=as.character(lapply(baseball.dataset$Hall_of_Fame, function(x) ifelse(x == "no", "dodgerblue", "firebrick1"))))
+abline(h=all.outliers$cutoff, lty=2, lwd=3)
+axis(2, at=seq(from = 0, to = ceiling(max(all.outliers$rd)), by=(ceiling(max(all.outliers$rd))/5)), cex.axis=.7)
+axis(1, cex.axis=.6)
+no.hall.outlier.names <- rownames(baseball.dataset[baseball.dataset$Hall_of_Fame == "no",][order(no.hall.outliers$rd, decreasing = T)[1:round(nrow(baseball.dataset) * 0.025)],])
+plot(no.hall.outliers$rd, pch=20, axes=F, col=as.character(lapply(rownames(baseball.dataset[baseball.dataset$Hall_of_Fame == "no",]), function(x) ifelse(x %in% no.hall.outlier.names, "firebrick1", "dodgerblue"))), xlab="", ylab="", cex=.7)
+axis(2, at=seq(from = 0, to = ceiling(max(no.hall.outliers$rd)), by=ceiling(max(no.hall.outliers$rd)/5)), cex.axis=.7)
+axis(1, cex.axis=.6)
+par(mfrow=c(1,1))
+```
+
 Looking at the summary of the dataset, it seems like some variables have suspicious maximum and minimum values. For example, variable `RBIs` has a minimum value of 21. This value is far away from the mean of the variable and far below its first quartile. It can be seen in the boxplots of figure \ref{fig:rbi-univariate} that the range of the `RBIs` variable changes drastically when including or omitting the hall of fame players. The minimum value of `RBIs` for the hall of fame players is much higher than the overall minimum. This means that the dataset's discordant maximum and minimum values may not really be representative of univariate outliers, becuase of the two really different populations that the dataset mixes. This will also be applied to the rest of continuous variables that show suspicious values, such as `Walks` or `Strikeouts`.
 
 ```{r echo=FALSE, fig.height=3, fig.cap="\\label{fig:rbi-univariate}Univariate outlier detection over RBIs variable", cache=F}
@@ -116,41 +135,47 @@ But, as for the averaging statistics, a different criteria should be applied. Sp
 
 As for multivariate outliers, the robustified Mahalanobis distance has been used for their detection. The plots of figure \ref{fig:rmahalanobis-distance} represent the distances of the individuals. The plot on the left shows in red those players that made it into the Hall of Fame, and in blue the ones that did not. It is obvious that the plot considers most of the players in the hall of fame as outliers, and there is a reason for that: They were considered for the hall of fame for their outstanding stats and performances indeed. These players kind of behave like outliers in real life, but that is the point. So, they will not be treated as outliers.
 
-```{r include=FALSE}
-all.outliers <- Moutlier(baseball.dataset[,1:15], plot=F)
-no.hall.outliers <- Moutlier(baseball.dataset[baseball.dataset$Hall_of_Fame == "no",1:15], plot=F)
-par(mfrow=c(1,1))
-```
-
-```{r echo=FALSE, fig.cap="\\label{fig:rmahalanobis-distance}Mahalanobis distances with and without Hall of Fame", fig.pos="!t"}
-par(mfrow=c(1,2))
-plot(x=1:length(all.outliers$rd), y=all.outliers$rd, pch=19, cex=0.7, axes=F, xlab="", ylab="", col=as.character(lapply(baseball.dataset$Hall_of_Fame, function(x) ifelse(x == "no", "dodgerblue", "firebrick1"))))
-abline(h=all.outliers$cutoff, lty=2, lwd=3)
-axis(2, at=seq(from = 0, to = ceiling(max(all.outliers$rd)), by=(ceiling(max(all.outliers$rd))/5)), cex.axis=.7)
-axis(1, cex.axis=.6)
-no.hall.outlier.names <- rownames(baseball.dataset[baseball.dataset$Hall_of_Fame == "no",][order(no.hall.outliers$rd, decreasing = T)[1:round(nrow(baseball.dataset) * 0.025)],])
-plot(no.hall.outliers$rd, pch=20, axes=F, col=as.character(lapply(rownames(baseball.dataset[baseball.dataset$Hall_of_Fame == "no",]), function(x) ifelse(x %in% no.hall.outlier.names, "firebrick1", "dodgerblue"))), xlab="", ylab="", cex=.7)
-axis(2, at=seq(from = 0, to = ceiling(max(no.hall.outliers$rd)), by=ceiling(max(no.hall.outliers$rd)/5)), cex.axis=.7)
-axis(1, cex.axis=.6)
-par(mfrow=c(1,1))
-```
-
 The plot on the right of the figure \ref{fig:rmahalanobis-distance} shows only players that are not in the hall of fame. It can be seen that some players still exceed other players. These could actually be considered outliers. If we consider to discard the 2.5% of the individuals, this is, the `r ceiling(nrow(baseball.dataset) * 0.025)` with the greatest robustified Mahalanobis distance for being outliers, then those individuals plotted in red will be discarded. The player that most outlies from those excluded from the hall of fame actually has stats that are outstanding, so one can not help but wonder why he was not included. This player is Pete Rose and, as noted by [`Wikipedia`](https://en.wikipedia.org/wiki/Pete_Rose), he has been involved in tax evasion and gambling controversy, which probably affected the commitees' decision making.
 
 ```{r include=FALSE, cache=F}
 baseball.dataset <- baseball.dataset[-which(rownames(baseball.dataset) %in% no.hall.outlier.names),]
 ```
 
-# Data exploration
-
-Most of the variables of the dataset are continuous, but it is possible to apply the Naïve Bayes predictor after a discretization process. To do so, certain ranges of the data will be transformed into categories. This must be done for all variables, but each variable will require specific adjustments depending on its range of values. For example, variable `Number_seasons` ranges from 10 to 26. The histogram in figure ?? shows how this variable is distributed.
-
-```{r echo=F}
+```{r echo=F, fig.cap="\\label{fig:season-barplot}Stacked barplot for played seasons", fig.pos="!t", out.extra=''}
 baseball.dataset.binary <- data.frame(baseball.dataset)
 levels(baseball.dataset.binary$Hall_of_Fame) <- c("no", "yes", "yes")
-barplot(table(baseball.dataset.binary$Hall_of_Fame, baseball.dataset.binary$Number_seasons), col=rev(brewer.pal(4, "Purples"))[1:2])
-legend("topright", legend=c("Hall of Fame", "Not Hall of Fame"), fill=rev(brewer.pal(4, "Purples"))[1:2])
+barplot(table(baseball.dataset.binary$Hall_of_Fame, cut(baseball.dataset.binary$Number_seasons, breaks = seq(min(baseball.dataset.binary$Number_seasons), max(baseball.dataset.binary$Number_seasons), length.out = 5))), col=rev(brewer.pal(4, "Purples"))[1:2])
+legend("topright", legend=c("Hall of Fame", "Not Hall of Fame"), fill=rev(rev(brewer.pal(4, "Purples"))[1:2]))
 ```
+
+# Data exploration
+
+Via visual data exploration, we might be able to obtain some useful information about the criteria of admission into the Hall of Fame. For example, one can reasonably think that the players that have the longest careers should be good enough or, at least, some kind of recognisable figure that is worth the acceptance into the Hall of Fame. Nevertheless, as barplot in figure \ref{fig:season-barplot} shows, there is no strong correlation between the season amount and the Hall of Fame. As careers grow longer, players that keep playing do end up getting accepted, but the amount of players accepted per each bar does not vary too much.
+
+```{r include=F, warning=F}
+chisq <- chisq.test(baseball.dataset[,c("Number_seasons", "Games_played")])
+```
+
+Variable `Games_played` should be strongly correlated with `Number_seasons`, meaning the variables are statistically dependent. Running a $\chi^2$ test with the two variables gives a p-value of `r round(chisq$p.value, 3)`, which allows us to reject the null hypothesis $H_0$ that states that the variables are independent. And thus, the barplot on figure \ref{fig:games-played-barplot} does not show a but a slight increase in the number of Hall of Fame players. All variables are mostly related to `Number_seasons`, because the more seasons a player plays, the highest chance he has of scoring more in this statistics. Actually, the $\chi^2$ p-value for the whole dataset is `r round(chisq.test(baseball.dataset[,1:15])$p.value, 6)`, so no independece can be taken for granted.
+
+Oddly enough, baseball is a mostly defensive sport. The defensive part of it is when players need a more strategic and collaborative response. And, still, most of the variables are related to the offensive part of baseball, and, therefore, they are closely tied to the amount of games and seasons. That is the case for all but the `Fielding_ave` variable, which refers to the amount of plays in which the player has taken part into the putout of another player. Barplot in figure \ref{fig:fielding-ave-barplot} shows the relation between the best recorded defenders and the players that got in the Hall of Fame. The better defenders they are, the highest is the chance to make it in. But also, the amount of discarded players increases as the number increases too. This leads to the conclusion that being a good defender is important to be a good player, and also that players that are just good defenders are not taken all that much into account.
+
+```{r echo=F, fig.cap="\\label{fig:games-played-barplot}Stacked barplot of played games", fig.pos="!t", out.extra=''}
+range.games.played <- cut(baseball.dataset.binary$Games_played, breaks = seq(min(baseball.dataset.binary$Games_played), max(baseball.dataset.binary$Games_played), length.out = 10), dig.lab = 5)
+games.played.barplot <- barplot(table(baseball.dataset.binary$Hall_of_Fame, range.games.played), col=rev(brewer.pal(4, "Blues"))[1:2], xaxt="n")
+text(x = games.played.barplot + .5, y = -13, labels=levels(range.games.played), xpd=T, srt=30, pos=2)
+text(x = games.played.barplot, y = margin.table(table(baseball.dataset.binary$Hall_of_Fame, range.games.played), 2) + 10, labels=table(baseball.dataset.binary$Hall_of_Fame, range.games.played)[2,], xpd=T)
+legend("topright", legend=c("Hall of Fame", "Not Hall of Fame"), fill=rev(rev(brewer.pal(4, "Blues"))[1:2]))
+```
+
+```{r echo=F, fig.cap="\\label{fig:fielding-ave-barplot}Stacked barplot of fielding average", fig.pos="!b", out.extra=''}
+fielding.ave.range <- cut(baseball.dataset.binary$Fielding_ave, breaks = seq(min(baseball.dataset.binary$Fielding_ave), max(baseball.dataset.binary$Fielding_ave), length.out = 10))
+fielding.barplot <- barplot(table(baseball.dataset.binary$Hall_of_Fame, fielding.ave.range), xaxt='n', col=rev(brewer.pal(3, "Greens"))[1:2])
+text(x = fielding.barplot + .5, y = -20, labels=levels(fielding.ave.range), xpd=T, srt=30, pos=2)
+legend("topleft", legend=c("Not Hall of Fame", "Hall of Fame"), fill=rev(rev(brewer.pal(3, "Greens"))[1:2]))
+```
+
+A player needs to stand out in as much statistics as possible to make into the Hall of Fame. In the end, as the plot in figure \ref{fig:rmahalanobis-distance} makes the most clear statement regarding what it really takes to be considered a great player: You need to be an outlier and, indeed, stand out in all the possible ways. Let's take a deeper look into all of this with some analysis.
 
 # Logistic regression
 
@@ -158,7 +183,7 @@ Being the target variable categorical, the most appropriate way to perform a reg
 
 The variables of the data are heterogeneous. Variable `Number_seasons` is an integer that ranges from `r min(baseball.dataset$Number_seasons)` to `r max(baseball.dataset$Number_seasons)`, and `Hits`, while also being an integer, ranges from `r min(baseball.dataset$Hits)` to `r max(baseball.dataset$Hits)`. Also, four of the variables are percentages (with decimals) going from 0 to 1. The variables need to be standardized so that they can be used together without causing distortion in the results.
 
-```{r include=F}
+```{r include=F, cache=T}
 N <- nrow(baseball.dataset.binary)
 N.training <- ceiling(2 * N / 3)
 N.test <- N - N.training
@@ -170,7 +195,7 @@ train.control <- trainControl(method = "cv", number=10, sampling="up")
 model <- train(Hall_of_Fame ~ ., data = training.sample[,-16], preProcess = c("scale", "center"), method="glm", family=binomial(link="logit"), trControl=train.control)
 ```
 
-```{r echo=F, fig.cap="\\label{fig:roc-table-log-regression}ROC table of the best logistic regression model"}
+```{r echo=F, fig.cap="\\label{fig:roc-table-log-regression}ROC table of the best logistic regression model", cache=T, out.extra=""}
 predicted.values <- predict(model$finalModel, newdata = test.sample)
 roc.pred <- prediction(predicted.values, test.sample$Hall_of_Fame)
 roc.perf <- performance(roc.pred, "tpr", "fpr")
@@ -181,19 +206,19 @@ For the selection of the best possible model, the dataset has been split into a 
 
 # Clustering
 
+In order to see what variables of the dataset characterize more the individuals we are going to perform some component analysis. This will also allow us to perform some clustering techniques with just the part of the information that is more relevant for our analysis. The analysis we are going to do is called PCA. When doing such an analysis we can see how the different variables are respresented and how much of the information is given by each of the analysis. In figure \ref{fig:pca-analysis} we can see how the variables of the dataset correlate with the relevant dimensions. As we can see, the variables best represented in the first dimension are `RBIs` and `Games_played`, while only `Fielding_ave` seems to correlate with the second dimension.
+
+As we want to reduce the dimensionality of the data to be able to visualize and analyze it in a better way, we will have to decide how many dimensions are relvant to us. For that purpose we will use all that dimensions that will allow us to guarantee that we are preserving at least 80% of the information on the sample. In this case, that threshold is reached with just the three first dimensions. From now on, an in order to perform the clustering we will use the coordinates of the individuals in just those three dimensions.
+
 ```{r include=F}
 baseball.dataset.pca <- data.frame(baseball.dataset)
 baseball.dataset.pca[,1:15] <- scale(baseball.dataset.pca[,1:15])
-pca.results <- PCA(baseball.dataset, quali.sup = 16:17)
+pca.results <- PCA(baseball.dataset, quali.sup = 16:17, graph = F)
 ```
 
 ```{r echo=FALSE, fig.cap="\\label{fig:pca-analysis}PCA Analysis of the Hall Of Fame.", fig.pos="!t"}
 plot.PCA(pca.results, choix=c("varcor"))
 ```
-
-In order to see what variables of the dataset characterize more the individuals we are going to perform some component analysis. This will also allow us to perform some clustering techniques with just the part of the information that is more relevant for our analysis. The analysis we are going to do is called PCA. When doing such an analysis we can see how the different variables are respresented and how much of the information is given by each of the analysis. In figure \ref{fig:pca-analysis} we can see how the variables of the dataset correlate with the relevant dimensions. As we can see, the variables best represented in the first dimension are `RBIs` and `Games_played`, while only `Fielding_ave` seems to correlate with the second dimension.
-
-As we want to reduce the dimensionality of the data to be able to visualize and analyze it in a better way, we will have to decide how many dimensions are relvant to us. For that purpose we will use all that dimensions that will allow us to guarantee that we are preserving at least 80% of the information on the sample. In this case, that threshold is reached with just the three first dimensions. From now on, an in order to perform the clustering we will use the coordinates of the individuals in just those three dimensions.
 
 ```{r include=F}
 baseball.data.matrix <- pca.results$ind$coord[,1:3]
@@ -254,7 +279,7 @@ for (i in 3:10){
 }
 ```
 
-```{r echo=FALSE, fig.cap="\\label{fig:calinski-harabassz}Clustering Evaluation by CH Index.", fig.pos="!t"}
+```{r echo=FALSE, fig.cap="\\label{fig:calinski-harabassz}Clustering Evaluation by CH Index.", fig.pos="!b", out.extra=""}
 # Plot the values of Calinski index
 plot(baseball.calinski.kmeans, type = "o", xlab = 'Number of clusters', ylim=c(500,1300), ylab = 'Calinski value', main = 'Calinski-Harabassz Index', col = 'blue', xaxt = "n")
 lines(baseball.calinski.hclust, type = "o", col = 'red', xaxt = "n")
@@ -466,19 +491,7 @@ With these new values we observe that now the accuracy of the classifier is `r r
 <!-- \fnbelowfloat command of the stfloats package. -->
 
 
-Conclusion
-============
-The conclusion goes here.
-
-<!-- conference papers do not normally have an appendix -->
-
-Acknowledgment {#acknowledgment}
-==============
-
-The authors would like to thank...
-
-Bibliography styles
-===================
+# Conclusion
 
 <!-- Here are two sample references: @Feynman1963118 [@Dirac1953888]. -->
 
